@@ -154,6 +154,7 @@ jobs:
 
           echo "Bekannte Variablennamen dieser Site:"
           if [ -z "$NAMEN" ]; then echo "  (keine)"; else echo "$NAMEN" | sed 's/^/  /'; fi
+          echo "::notice title=Variablen der Site::$(echo "$NAMEN" | tr '\n' ' ')"
 
           hat() { echo "$NAMEN" | grep -qx "$1"; }
           hat DATABASE_URL && echo "hat_database_url=ja" >> "$GITHUB_OUTPUT" || echo "hat_database_url=nein" >> "$GITHUB_OUTPUT"
@@ -211,8 +212,16 @@ jobs:
           # Verbindungs-Strings aus, und in denen steht das Passwort.
           npx --yes netlify-cli@latest db status --debug 2>&1 \
             | sed -E 's#postgres(ql)?://[^[:space:]"]+#postgresql://REDIGIERT#g' \
-            | tail -80 \
-            || echo "(nichts abfragbar)"
+            > /tmp/dbdebug.txt || true
+
+          echo "── Zeilen, die etwas ueber die Instanz sagen ──"
+          grep -Ei 'api\.|extension|neon|database|claim|provision|status|http' /tmp/dbdebug.txt \
+            | head -40 | tee /tmp/dbdebug-kurz.txt || echo "(nichts gefunden)"
+
+          # Als Annotation, damit die Kernaussagen ohne Log-Wuehlen lesbar sind.
+          head -12 /tmp/dbdebug-kurz.txt | while IFS= read -r zeile; do
+            echo "::notice title=db status::${zeile:0:400}"
+          done
 
       - name: Verbindung im ganzen Konto suchen
         continue-on-error: true
@@ -222,7 +231,8 @@ jobs:
           # und kopiert eine gefundene Verbindung hierher – ohne den Wert je
           # auszugeben.
           SITE_ID=$(node -pe 'try{JSON.parse(require("fs").readFileSync(".netlify/state.json","utf8")).siteId}catch{""}')
-          node scripts/netlify-datenbank-suchen.mjs "$SITE_ID"
+          node scripts/netlify-datenbank-suchen.mjs "$SITE_ID" | tee /tmp/kontosuche.txt
+          echo "::notice title=Konto-Suche::$(tail -6 /tmp/kontosuche.txt | tr '\n' ' | ')"
 
       - name: Variablen in allen Kontexten suchen
         continue-on-error: true
@@ -425,11 +435,12 @@ jobs:
             // Werte werden vorsorglich unkenntlich gemacht.
             const wichtig = zeilen.filter((z) => /Datenbank|DATABASE|POSTGRES|NEON|Migration|prisma/i.test(z))
             if (wichtig.length === 0) {
-              console.log("(im Build-Log steht nichts zur Datenbank – Log evtl. nicht abrufbar)")
-              console.log("Rohlaenge:", roh.length, "Zeichen")
+              console.log(`::notice title=Build-Log::keine Datenbank-Zeilen gefunden (Rohlaenge ${roh.length})`)
             } else {
-              for (const z of wichtig.slice(0, 40)) {
-                console.log("  " + z.replace(/postgres(ql)?:\/\/\S+/g, "postgresql://REDIGIERT"))
+              for (const z of wichtig.slice(0, 12)) {
+                const sauber = z.replace(/postgres(ql)?:\/\/\S+/g, "postgresql://REDIGIERT").slice(0, 400)
+                console.log("  " + sauber)
+                console.log(`::notice title=Build-Log::${sauber}`)
               }
             }
           '
@@ -460,6 +471,7 @@ jobs:
               echo "Antwort der Schnittstelle:"
               echo '```'; echo "$NEU" | head -c 400; echo; echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=Antwort der App::$(echo "$NEU" | head -c 300 | tr -d '\n')"
             echo "::warning::Seite läuft, Datenbank fehlt noch"
             exit 0
           fi

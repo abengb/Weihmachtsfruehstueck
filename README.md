@@ -127,7 +127,25 @@ stehen danach in der Zusammenfassung des Laufs.
 > Gastgeber-Link steht dort im Klartext. Wer das nicht möchte, legt das Event
 > stattdessen auf der Startseite an; dann bleiben die Codes im Browser.
 
-### Weg B: lokal, ein Befehl
+### Weg B: auf dem eigenen Rechner, mit öffentlichem Link
+
+Kein Netlify, kein Konto – die App läuft auf deinem Rechner und ist über einen
+Tunnel von außen erreichbar. Braucht Docker und Node 22:
+
+```bash
+bash scripts/lokal-mit-link.sh
+```
+
+Das Skript startet Postgres in Docker, spielt das Schema ein, legt das
+Beispiel-Event an, baut und startet die App und öffnet einen Tunnel. Am Ende
+stehen der öffentliche Gast- und Gastgeber-Link auf dem Bildschirm.
+
+Der Link lebt nur, solange das Fenster offen ist und der Rechner wach bleibt –
+gut zum Zeigen und Ausprobieren, nichts für die Wochen vor dem Frühstück.
+Schöner wird der Tunnel mit `brew install cloudflared` (sonst springt das
+Skript auf localtunnel um, das Besuchern einmal eine Zwischenseite zeigt).
+
+### Weg C: lokal deployen, ein Befehl
 
 Ein Befehl, der alles durchgeht – Anmeldung, Site, Datenbank, Deploy und das
 Anlegen des Events:
@@ -139,7 +157,7 @@ bash scripts/deploy.sh
 Er hält nur an, wenn er dich braucht: einmal für die Netlify-Anmeldung im
 Browser und, falls noch keine Datenbank existiert, für die Neon-Anbindung.
 
-### Weg C: von Hand
+### Weg D: von Hand
 
 
 ```bash

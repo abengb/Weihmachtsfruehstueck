@@ -1,0 +1,139 @@
+// Weihnachtsfrühstück Schrickel – Datenmodell
+// Kein Login, kein Nutzerkonto: Zugang läuft über eventCode (Gäste) und hostKey (Gastgeber).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum EiArt {
+  KEINS
+  WEICH
+  WACHSWEICH
+  HART
+  RUEHREI
+  SPIEGELEI
+  POCHIERT
+}
+
+enum EiGroesse {
+  S
+  M
+  L
+  XL
+}
+
+enum EiTemperatur {
+  KUEHLSCHRANK
+  ZIMMER
+}
+
+enum FrageTyp {
+  SINGLE
+  MULTI
+}
+
+model Event {
+  id        String    @id @default(cuid())
+  name      String
+  datum     DateTime
+  eventCode String    @unique
+  hostKey   String
+  deadline  DateTime?
+  locked    Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  // Einkaufsliste
+  bruchReserve Int @default(2)
+
+  // Kochzeiten in Sekunden, pro Event nachjustierbar (Einstellungsseite)
+  zeitWeich      Int @default(270) // 4:30
+  zeitWachsweich Int @default(390) // 6:30
+  zeitHart       Int @default(570) // 9:30
+
+  // Zuschläge in Sekunden
+  zuschlagKuehl Int @default(60)
+  zuschlagS     Int @default(-30)
+  zuschlagL     Int @default(30)
+  zuschlagXL    Int @default(60)
+
+  topfKapazitaet Int @default(12)
+
+  guests    Guest[]
+  questions Question[]
+}
+
+model Guest {
+  id        String   @id @default(cuid())
+  eventId   String
+  name      String
+  createdAt DateTime @default(now())
+
+  event    Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  orders   EggOrder[]
+  answers  Answer[]
+  wuensche Wunsch[]
+
+  @@unique([eventId, name])
+  @@index([eventId])
+}
+
+model EggOrder {
+  id          String       @id @default(cuid())
+  guestId     String
+  anzahl      Int          @default(1)
+  art         EiArt
+  groesse     EiGroesse    @default(M)
+  temperatur  EiTemperatur @default(KUEHLSCHRANK)
+  notiz       String?
+  createdAt   DateTime     @default(now())
+
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+
+  @@index([guestId])
+}
+
+model Question {
+  id        String   @id @default(cuid())
+  eventId   String
+  text      String
+  typ       FrageTyp @default(SINGLE)
+  optionen  String[]
+  aktiv     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  answers Answer[]
+
+  @@index([eventId])
+}
+
+model Answer {
+  id         String   @id @default(cuid())
+  questionId String
+  guestId    String
+  auswahl    String[]
+  updatedAt  DateTime @updatedAt
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  guest    Guest    @relation(fields: [guestId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, guestId])
+  @@index([guestId])
+}
+
+model Wunsch {
+  id        String   @id @default(cuid())
+  guestId   String
+  text      String
+  createdAt DateTime @default(now())
+
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+
+  @@index([guestId])
+}

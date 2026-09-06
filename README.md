@@ -105,6 +105,30 @@ npm run dev
 
 ## Deployen auf Netlify
 
+### Weg A: per Knopfdruck über GitHub Actions (nichts zu installieren)
+
+Einmalig zwei Repository-Secrets anlegen unter
+*Settings → Secrets and variables → Actions → New repository secret*:
+
+| Secret | Woher |
+| --- | --- |
+| `NETLIFY_AUTH_TOKEN` | Netlify → User settings → Applications → Personal access tokens → New access token |
+| `DATABASE_URL` | Kostenloses Projekt auf [neon.tech](https://neon.tech), dann die **gepoolte** Verbindung (`…-pooler.…neon.tech`) kopieren |
+
+Optional: `DIRECT_URL` (dieselbe Neon-URL ohne `-pooler`, für die Migrationen)
+und `NETLIFY_SITE_ID`, falls die Site schon existiert.
+
+Dann *Actions → „Auf Netlify veröffentlichen" → Run workflow*. Der Workflow
+legt die Site an, setzt die Datenbank-Variablen, baut, deployt, prüft die
+Live-Seite und legt das Event an. Live-URL, Gast-Link und Gastgeber-Link
+stehen danach in der Zusammenfassung des Laufs.
+
+> Die Zusammenfassung sehen alle mit Lesezugriff aufs Repository – der
+> Gastgeber-Link steht dort im Klartext. Wer das nicht möchte, legt das Event
+> stattdessen auf der Startseite an; dann bleiben die Codes im Browser.
+
+### Weg B: lokal, ein Befehl
+
 Ein Befehl, der alles durchgeht – Anmeldung, Site, Datenbank, Deploy und das
 Anlegen des Events:
 
@@ -115,7 +139,8 @@ bash scripts/deploy.sh
 Er hält nur an, wenn er dich braucht: einmal für die Netlify-Anmeldung im
 Browser und, falls noch keine Datenbank existiert, für die Neon-Anbindung.
 
-**Von Hand geht es so:**
+### Weg C: von Hand
+
 
 ```bash
 npx netlify-cli login

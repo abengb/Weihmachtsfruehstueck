@@ -262,10 +262,20 @@ jobs:
           set -euo pipefail
           NETLIFY="npx --yes netlify-cli@17"
 
-          SITE_JSON=$($NETLIFY status --json)
-          SITE_ID=$(echo "$SITE_JSON" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).siteData?.id ?? ""')
-          URL=$(echo "$SITE_JSON" | node -pe \
-            'const j=JSON.parse(require("fs").readFileSync(0,"utf8"));j.siteData?.ssl_url||j.siteData?.url||""')
+          # Die Site-ID steht verlaesslich in der Datei, die "netlify link"
+          # anlegt. "status --json" hat sie je nach CLI-Version nicht.
+          SITE_ID=$(node -pe 'try{JSON.parse(require("fs").readFileSync(".netlify/state.json","utf8")).siteId}catch{""}')
+          if [ -z "$SITE_ID" ]; then
+            SITE_ID=$($NETLIFY sites:list --json \
+              | node -pe 'const s=JSON.parse(require("fs").readFileSync(0,"utf8"));(s.find(x=>x.name===process.argv[1])||{}).id ?? ""' "$SITE_NAME")
+          fi
+          if [ -z "$SITE_ID" ]; then
+            echo "::error::Site-ID nicht ermittelbar"
+            exit 1
+          fi
+
+          URL=$($NETLIFY sites:list --json \
+            | node -pe 'const s=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=s.find(y=>y.id===process.argv[1]);x?(x.ssl_url||x.url):""' "$SITE_ID")
           [ -z "$URL" ] && URL="https://${SITE_NAME}.netlify.app"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 

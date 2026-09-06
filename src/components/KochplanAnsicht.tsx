@@ -429,7 +429,7 @@ function TimerVollbild({ plan, eventCode }: { plan: Kochplan; eventCode: string 
         {folgende.length > 0 && (
           <div className="rounded-karte border border-creme/15 bg-creme/8 p-4">
             <p className="mb-2 text-xs font-semibold tracking-wide text-creme/60 uppercase">
-              Danach
+              Danach · Restzeit ab jetzt
             </p>
             <ul className="space-y-1.5 text-sm">
               {folgende.map((e) => (

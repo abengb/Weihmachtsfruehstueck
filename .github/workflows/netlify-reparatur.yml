@@ -199,6 +199,21 @@ jobs:
             | node -pe 'Object.keys(JSON.parse(require("fs").readFileSync(0,"utf8"))).join("\n")' \
             || echo "(keine)"
 
+      - name: Was fragt die CLI eigentlich ab?
+        continue-on-error: true
+        run: |
+          # "db status" meldet die Datenbank als aktiv, waehrend nirgends eine
+          # Verbindung auftaucht. Eines von beidem stimmt nicht. Mit --debug
+          # zeigt die CLI, welche Adressen sie anspricht - daran laesst sich
+          # erkennen, ob ueberhaupt eine Instanz existiert.
+          #
+          # Der sed-Filter ist Pflicht: --debug gibt notfalls auch
+          # Verbindungs-Strings aus, und in denen steht das Passwort.
+          npx --yes netlify-cli@latest db status --debug 2>&1 \
+            | sed -E 's#postgres(ql)?://[^[:space:]"]+#postgresql://REDIGIERT#g' \
+            | tail -80 \
+            || echo "(nichts abfragbar)"
+
       - name: Verbindung im ganzen Konto suchen
         continue-on-error: true
         run: |
@@ -379,6 +394,45 @@ jobs:
             $NETLIFY build
             $NETLIFY deploy --prod --no-build --message "Reparatur-Workflow (ohne Netlify-Build)" 2>&1 | tail -20
           fi
+
+      - name: Was hat Netlify beim Bauen gesehen?
+        if: ${{ inputs.neu_deployen }}
+        continue-on-error: true
+        run: |
+          # scripts/netlify-build.sh listet zu Beginn jedes Builds auf, welche
+          # Datenbank-Variablen dort ankommen. Diese Zeilen stehen im
+          # Build-Log auf Netlifys Seite - und sie beantworten die Frage, ob
+          # Netlify die Verbindung erst beim Bauen einspielt (dann steht sie
+          # da) oder ob es sie schlicht nicht gibt.
+          DEPLOY_ID=$(node -pe 'try{JSON.parse(require("fs").readFileSync("/tmp/deploy.json","utf8"))[0]?.id ?? ""}catch{""}')
+          [ -z "$DEPLOY_ID" ] && { echo "(kein Deploy bekannt)"; exit 0; }
+
+          curl -sS -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
+            "https://api.netlify.com/api/v1/deploys/$DEPLOY_ID/log" > /tmp/buildlog.json 2>/dev/null || true
+
+          node -e '
+            const fs = require("fs")
+            let roh = ""
+            try { roh = fs.readFileSync("/tmp/buildlog.json", "utf8") } catch {}
+            let zeilen
+            try {
+              const j = JSON.parse(roh)
+              zeilen = Array.isArray(j) ? j.map((z) => z.message ?? String(z)) : String(j).split("\n")
+            } catch {
+              zeilen = roh.split("\n")
+            }
+            // Nur die Zeilen, die etwas ueber die Datenbank aussagen - und
+            // Werte werden vorsorglich unkenntlich gemacht.
+            const wichtig = zeilen.filter((z) => /Datenbank|DATABASE|POSTGRES|NEON|Migration|prisma/i.test(z))
+            if (wichtig.length === 0) {
+              console.log("(im Build-Log steht nichts zur Datenbank – Log evtl. nicht abrufbar)")
+              console.log("Rohlaenge:", roh.length, "Zeichen")
+            } else {
+              for (const z of wichtig.slice(0, 40)) {
+                console.log("  " + z.replace(/postgres(ql)?:\/\/\S+/g, "postgresql://REDIGIERT"))
+              }
+            }
+          '
 
       - name: Funktioniert die Seite wirklich?
         if: ${{ inputs.neu_deployen }}

@@ -320,16 +320,15 @@ jobs:
           [ -z "$URL" ] && URL="https://${SITE_NAME}.netlify.app"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
-          # WICHTIG: Der Build muss auf NETLIFYS Servern laufen, nicht hier.
-          # Nur dort spritzt Netlify die Variablen der Netlify-Datenbank ein.
-          # "netlify deploy --build" wuerde lokal bauen - und genau deshalb
-          # sah der Build vorher nie eine Datenbank.
+          # Erste Wahl: Netlify baut selbst. Nur in seinem eigenen Build
+          # spielt Netlify die Variablen der Netlify-Datenbank ein – ein hier
+          # gebautes Ergebnis wuerde sie nie zu sehen bekommen.
           echo "→ Netlify-eigenen Build anstossen (Site $SITE_ID)"
           $NETLIFY api createSiteBuild --data "{\"site_id\":\"$SITE_ID\"}" > /tmp/build.json
-          BUILD_ID=$(node -pe 'JSON.parse(require("fs").readFileSync("/tmp/build.json","utf8")).id ?? ""')
-          echo "Build angelegt: $BUILD_ID"
+          echo "Build angelegt: $(node -pe 'JSON.parse(require("fs").readFileSync("/tmp/build.json","utf8")).id ?? ""')"
 
           echo "→ Warten, bis der Build durch ist"
+          AUSWEICHEN=nein
           for i in $(seq 1 60); do
             sleep 10
             $NETLIFY api listSiteDeploys --data "{\"site_id\":\"$SITE_ID\",\"per_page\":1}" > /tmp/deploy.json
@@ -338,12 +337,22 @@ jobs:
             case "$ZUSTAND" in
               ready*) echo "Build fertig."; break ;;
               error*)
-                # Nicht nur "rot" melden, sondern sagen woran es lag. Sonst
-                # steht man vor einer verschlossenen Tuer.
-                DEPLOY_ID=$(node -pe 'JSON.parse(require("fs").readFileSync("/tmp/deploy.json","utf8"))[0]?.id ?? ""')
+                # Nicht nur "rot" melden, sondern sagen woran es lag.
+                GRUND=$(node -pe 'JSON.parse(require("fs").readFileSync("/tmp/deploy.json","utf8"))[0]?.error_message ?? "(keine)"')
                 echo "── Fehlermeldung des Deploys ──"
-                node -pe 'JSON.parse(require("fs").readFileSync("/tmp/deploy.json","utf8"))[0]?.error_message ?? "(keine)"'
+                echo "$GRUND"
+
+                # Ist das Guthaben aufgebraucht, fuehrt Netlify gar nichts
+                # aus. Dann bauen wir selbst und laden nur das Ergebnis hoch –
+                # das braucht kein Build-Kontingent.
+                if echo "$GRUND" | grep -qi "credit"; then
+                  echo "→ Kein Build-Guthaben. Ich baue selbst und lade das Ergebnis hoch."
+                  AUSWEICHEN=ja
+                  break
+                fi
+
                 echo "── Letzte Zeilen des Build-Logs ──"
+                DEPLOY_ID=$(node -pe 'JSON.parse(require("fs").readFileSync("/tmp/deploy.json","utf8"))[0]?.id ?? ""')
                 curl -sS -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
                   "https://api.netlify.com/api/v1/deploys/$DEPLOY_ID/log" 2>/dev/null \
                   | node -e '
@@ -363,6 +372,13 @@ jobs:
                 ;;
             esac
           done
+
+          if [ "$AUSWEICHEN" = "ja" ]; then
+            export DATABASE_URL="${{ secrets.DATABASE_URL }}"
+            export DIRECT_URL="${{ secrets.DATABASE_URL }}"
+            $NETLIFY build
+            $NETLIFY deploy --prod --no-build --message "Reparatur-Workflow (ohne Netlify-Build)" 2>&1 | tail -20
+          fi
 
       - name: Funktioniert die Seite wirklich?
         if: ${{ inputs.neu_deployen }}

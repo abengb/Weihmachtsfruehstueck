@@ -23,10 +23,12 @@ export function OhneDatenbank() {
           <h2 className="mt-6 font-serif text-lg text-tanne">Für die Gastgeber: zwei Schritte</h2>
           <ol className="mt-2 space-y-2 text-sm leading-relaxed text-tinte-sanft">
             <li>
-              <strong className="text-tinte">1.</strong> Im Netlify-Dashboard dieses Projekt öffnen
-              → <em>Project configuration</em> → <em>Data &amp; Storage</em> → <em>Database</em> →{' '}
-              <strong>eine Datenbank anlegen</strong>. Netlify legt sie an und trägt die
-              Zugangsdaten selbst ein.
+              <strong className="text-tinte">1.</strong> Eine Postgres-Datenbank besorgen. Entweder
+              im Netlify-Dashboard unter <em>Project configuration</em> → <em>Data &amp; Storage</em>{' '}
+              → <em>Database</em> (das setzt Guthaben im Netlify-Konto voraus), oder ein
+              kostenloses Projekt bei <strong>neon.tech</strong> anlegen und dessen
+              Verbindungs-String in Netlify unter <em>Environment variables</em> als{' '}
+              <code className="font-mono text-xs">DATABASE_URL</code> eintragen.
             </li>
             <li>
               <strong className="text-tinte">2.</strong> Danach unter <em>Deploys</em> einmal{' '}

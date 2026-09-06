@@ -195,6 +195,39 @@ Variablen zurechtlegen → `prisma generate` → `prisma migrate deploy` →
 Danach das Event anlegen: Live-URL öffnen → „Neues Frühstück anlegen“. Die
 Seite zeigt anschließend beide Links zum Kopieren.
 
+### Wenn es klemmt
+
+Drei Dinge haben beim ersten Aufsetzen echte Zeit gekostet. Falls sie wieder
+auftauchen, hier die Erkennungsmerkmale:
+
+**„Skipped due to account credit usage exceeded“** — Netlify führt den Build gar
+nicht aus, das Guthaben des Kontos ist aufgebraucht. Sichtbar nur in der
+Fehlermeldung des Deploys, nicht im Build-Log (das es dann nicht gibt). Der
+Reparatur-Workflow erkennt das und baut ersatzweise auf dem GitHub-Runner, was
+kein Build-Kontingent braucht.
+
+**„🟢 Netlify Database is enabled“, aber nirgends eine Verbindung** — „enabled“
+heißt nur, dass das Feature für das Projekt freigeschaltet ist. Ob wirklich eine
+Datenbank daranhängt, verrät
+
+```bash
+curl -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
+  https://api.netlify.com/api/v1/sites/<site-id>/service-instances
+```
+
+Kommt `[]` zurück, existiert keine Instanz. `netlify db init` hilft dabei nicht:
+es richtet nur eine lokale Wegwerf-Datenbank ein (`postgres://localhost:…`).
+
+**Prisma meldet `P1013: The scheme is not recognized`** — der Verbindungs-String
+fängt nicht mit `postgresql://` an. Neon zeigt ihn als fertigen Befehl an:
+
+```
+psql 'postgresql://…'
+```
+
+Wer die ganze Zeile kopiert, hat `psql ` und die Anführungszeichen mit im Wert.
+Der Workflow entfernt solche Beigaben inzwischen selbst.
+
 ---
 
 ## Aufbau

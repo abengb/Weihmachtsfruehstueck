@@ -1,0 +1,195 @@
+name: Auf Netlify veröffentlichen
+
+# Der Deploy läuft hier auf einem GitHub-Runner, weil der ungehinderten
+# Netzzugang zu Netlify und Neon hat. Starten unter
+# Actions → "Auf Netlify veröffentlichen" → "Run workflow".
+#
+# Gebraucht werden zwei Repository-Secrets
+# (Settings → Secrets and variables → Actions → New repository secret):
+#
+#   NETLIFY_AUTH_TOKEN   Netlify → User settings → Applications →
+#                        Personal access tokens → New access token
+#   DATABASE_URL         Neon-Verbindung, die gepoolte (…-pooler.…neon.tech)
+#
+# Optional:
+#   DIRECT_URL           Neon ohne Pooler, für die Migrationen.
+#                        Fehlt sie, wird DATABASE_URL genommen.
+#   NETLIFY_SITE_ID      Wenn die Site schon existiert.
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_name:
+        description: Name der Netlify-Site
+        required: true
+        default: weihnachtsfruehstueck-schrickel
+      event_anlegen:
+        description: Danach das Event "Weihnachtsfrühstück Schrickel" anlegen
+        type: boolean
+        default: true
+
+concurrency:
+  group: netlify-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      SITE_NAME: ${{ inputs.site_name }}
+
+    steps:
+      - name: Secrets prüfen
+        run: |
+          fehlt=""
+          [ -z "$NETLIFY_AUTH_TOKEN" ] && fehlt="$fehlt NETLIFY_AUTH_TOKEN"
+          [ -z "$DATABASE_URL" ] && fehlt="$fehlt DATABASE_URL"
+          if [ -n "$fehlt" ]; then
+            {
+              echo "## Es fehlen noch Secrets"
+              echo
+              echo "Bitte unter **Settings → Secrets and variables → Actions** anlegen:"
+              echo
+              for s in $fehlt; do echo "- \`$s\`"; done
+              echo
+              echo "\`NETLIFY_AUTH_TOKEN\`: Netlify → User settings → Applications → Personal access tokens."
+              echo
+              echo "\`DATABASE_URL\`: kostenloses Projekt auf https://neon.tech anlegen,"
+              echo "dann die **gepoolte** Verbindung (\`…-pooler.…neon.tech\`) kopieren."
+              echo "Optional zusätzlich \`DIRECT_URL\` – dieselbe URL ohne \`-pooler\`."
+              echo
+              echo "Danach diesen Workflow einfach erneut starten."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Es fehlen die Secrets:$fehlt"
+            exit 1
+          fi
+          echo "Alles da."
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Tests
+        run: npm test
+
+      - name: Netlify-Site anlegen oder verknüpfen
+        id: site
+        run: |
+          set -euo pipefail
+          NETLIFY="npx --yes netlify-cli@17"
+
+          if [ -n "${{ secrets.NETLIFY_SITE_ID }}" ]; then
+            $NETLIFY link --id "${{ secrets.NETLIFY_SITE_ID }}"
+          elif $NETLIFY link --name "$SITE_NAME" 2>/dev/null; then
+            echo "Bestehende Site '$SITE_NAME' verknüpft."
+          else
+            echo "Lege Site '$SITE_NAME' an."
+            $NETLIFY sites:create --name "$SITE_NAME" --disable-linking
+            $NETLIFY link --name "$SITE_NAME"
+          fi
+
+          SITE_ID=$($NETLIFY status --json | node -pe \
+            'JSON.parse(require("fs").readFileSync(0,"utf8")).siteData?.id ?? ""')
+          echo "site_id=$SITE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Datenbank-Variablen an der Site setzen
+        run: |
+          set -euo pipefail
+          NETLIFY="npx --yes netlify-cli@17"
+          # --force überschreibt still, falls die Variable schon existiert.
+          $NETLIFY env:set DATABASE_URL "$DATABASE_URL" --force
+          $NETLIFY env:set DIRECT_URL "${DIRECT_URL:-$DATABASE_URL}" --force
+
+      - name: Bauen und deployen
+        id: deploy
+        run: |
+          set -euo pipefail
+          NETLIFY="npx --yes netlify-cli@17"
+          export DIRECT_URL="${DIRECT_URL:-$DATABASE_URL}"
+
+          $NETLIFY deploy --build --prod
+
+          URL=$($NETLIFY status --json | node -pe \
+            'const j=JSON.parse(require("fs").readFileSync(0,"utf8"));j.siteData?.ssl_url||j.siteData?.url||""')
+          [ -z "$URL" ] && URL="https://${SITE_NAME}.netlify.app"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Live: $URL"
+
+      - name: Live-Seite prüfen
+        run: |
+          set -euo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
+          for versuch in 1 2 3 4 5 6; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' "$URL/" || echo 000)
+            echo "Versuch $versuch: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep $((versuch * 5))
+          done
+          echo "::error::Die Startseite antwortet nicht mit 200."
+          exit 1
+
+      - name: Event anlegen und Links ausgeben
+        if: ${{ inputs.event_anlegen }}
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          DATUM=$(date -u -d '+14 days' +%Y-%m-%d)
+
+          ANTWORT=$(curl -sS -X POST "$URL/api/events" \
+            -H 'Content-Type: application/json' \
+            -d "{\"name\":\"Weihnachtsfrühstück Schrickel\",\"datum\":\"${DATUM}T09:00:00.000Z\"}")
+
+          node -e '
+            const antwort = process.argv[1], url = process.argv[2]
+            const raus = require("fs").createWriteStream(process.env.GITHUB_STEP_SUMMARY, { flags: "a" })
+            let j
+            try { j = JSON.parse(antwort) } catch { j = null }
+
+            if (!j?.eventCode) {
+              raus.write("## Deploy steht, Event nicht angelegt\n\n")
+              raus.write("Live-URL: " + url + "\n\n")
+              raus.write("Antwort des Servers:\n\n```\n" + antwort.slice(0, 800) + "\n```\n\n")
+              raus.write("Leg das Event von Hand an: Startseite oeffnen, \"Neues Fruehstueck anlegen\".\n")
+              raus.end()
+              process.exit(1)
+            }
+
+            raus.write("## Fertig\n\n")
+            raus.write("| | |\n|---|---|\n")
+            raus.write("| **Live-URL** | " + url + " |\n")
+            raus.write("| **Gast-Link** | " + url + j.gastLink + " |\n")
+            raus.write("| **Gastgeber-Link** | " + url + j.hostLink + " |\n\n")
+            raus.write("Den Gast-Link in die WhatsApp-Gruppe. Den Gastgeber-Link fuer euch behalten.\n\n")
+            raus.write("> Hinweis: Diese Zusammenfassung koennen alle sehen, die Lesezugriff auf das\n")
+            raus.write("> Repository haben – der Gastgeber-Link steht hier also im Klartext. Wenn das\n")
+            raus.write("> stoert: auf der Startseite ein neues Event anlegen, dann bekommst du frische\n")
+            raus.write("> Codes, die nur in deinem Browser auftauchen.\n")
+            raus.end()
+
+            console.log("Live-URL:       " + url)
+            console.log("Gast-Link:      " + url + j.gastLink)
+            console.log("Gastgeber-Link: " + url + j.hostLink)
+          ' "$ANTWORT" "$URL"
+
+      - name: Nur Live-URL ausgeben
+        if: ${{ !inputs.event_anlegen }}
+        run: |
+          {
+            echo "## Deploy fertig"
+            echo
+            echo "Live-URL: ${{ steps.deploy.outputs.url }}"
+            echo
+            echo 'Event anlegen: Startseite oeffnen → "Neues Fruehstueck anlegen".'
+          } >> "$GITHUB_STEP_SUMMARY"

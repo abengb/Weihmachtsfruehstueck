@@ -380,7 +380,8 @@ jobs:
           # gebautes Ergebnis wuerde sie nie zu sehen bekommen.
           echo "→ Netlify-eigenen Build anstossen (Site $SITE_ID)"
           $NETLIFY api createSiteBuild --data "{\"site_id\":\"$SITE_ID\"}" > /tmp/build.json
-          echo "Build angelegt: $(node -pe 'JSON.parse(require("fs").readFileSync("/tmp/build.json","utf8")).id ?? ""')"
+          BUILD_ID=$(node -pe 'JSON.parse(require("fs").readFileSync("/tmp/build.json","utf8")).id ?? ""')
+          echo "Build angelegt: $BUILD_ID"
 
           echo "→ Warten, bis der Build durch ist"
           AUSWEICHEN=nein
@@ -396,6 +397,7 @@ jobs:
                 GRUND=$(node -pe 'JSON.parse(require("fs").readFileSync("/tmp/deploy.json","utf8"))[0]?.error_message ?? "(keine)"')
                 echo "── Fehlermeldung des Deploys ──"
                 echo "$GRUND"
+                echo "::error title=Deploy-Fehler::${GRUND:0:400}"
 
                 # Ist das Guthaben aufgebraucht, fuehrt Netlify gar nichts
                 # aus. Dann bauen wir selbst und laden nur das Ergebnis hoch –
@@ -408,20 +410,35 @@ jobs:
 
                 echo "── Letzte Zeilen des Build-Logs ──"
                 DEPLOY_ID=$(node -pe 'JSON.parse(require("fs").readFileSync("/tmp/deploy.json","utf8"))[0]?.id ?? ""')
-                curl -sS -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
-                  "https://api.netlify.com/api/v1/deploys/$DEPLOY_ID/log" 2>/dev/null \
-                  | node -e '
-                      let roh = ""
-                      process.stdin.on("data", (d) => (roh += d))
-                      process.stdin.on("end", () => {
-                        try {
-                          const zeilen = JSON.parse(roh)
-                          for (const z of zeilen.slice(-60)) console.log(z.message ?? z)
-                        } catch {
-                          console.log(roh.slice(-4000) || "(Log nicht abrufbar)")
-                        }
-                      })
-                    ' || echo "(Log nicht abrufbar)"
+                # Netlify legt das Log mal unter dem Deploy, mal unter dem
+                # Build ab. Beides probieren, das erste brauchbare gewinnt.
+                for QUELLE in "deploys/$DEPLOY_ID/log" "builds/$BUILD_ID/log"; do
+                  curl -sS -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
+                    "https://api.netlify.com/api/v1/$QUELLE" > /tmp/blog.txt 2>/dev/null || true
+                  [ "$(wc -c < /tmp/blog.txt)" -gt 40 ] && break
+                done
+
+                node -e '
+                  const fs = require("fs")
+                  let roh = ""
+                  try { roh = fs.readFileSync("/tmp/blog.txt", "utf8") } catch {}
+                  let zeilen
+                  try {
+                    const j = JSON.parse(roh)
+                    zeilen = Array.isArray(j) ? j.map((z) => z.message ?? String(z)) : String(j).split("\n")
+                  } catch { zeilen = roh.split("\n") }
+                  const sauber = (z) => z.replace(/postgres(ql)?:\/\/\S+/g, "postgresql://REDIGIERT").slice(0, 300)
+                  if (zeilen.length < 2) {
+                    console.log(`::error title=Build-Log::nicht abrufbar (${roh.length} Zeichen)`)
+                  } else {
+                    for (const z of zeilen.slice(-25)) {
+                      console.log("  " + sauber(z))
+                      if (/error|fehl|failed|Error|P\d{4}/i.test(z)) {
+                        console.log(`::error title=Build-Log::${sauber(z)}`)
+                      }
+                    }
+                  }
+                '
                 echo "::error::Netlify-Build fehlgeschlagen – Log: https://app.netlify.com/projects/$SITE_NAME/deploys"
                 exit 1
                 ;;

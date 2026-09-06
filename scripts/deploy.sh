@@ -44,9 +44,9 @@ fi
 
 # --- 3. Datenbank ----------------------------------------------------------
 blau "3/6  Datenbank"
-vorhanden=$($NETLIFY env:list --plain 2>/dev/null || true)
+vorhanden=$($NETLIFY env:list --plain 2>/dev/null || $NETLIFY env:list 2>/dev/null || true)
 
-if echo "$vorhanden" | grep -qE '^(DATABASE_URL|NETLIFY_DATABASE_URL)'; then
+if echo "$vorhanden" | grep -qE '(DATABASE_URL|NETLIFY_DATABASE_URL)'; then
   echo "Datenbank-Variable ist gesetzt."
 elif [ -n "${DATABASE_URL:-}" ]; then
   echo "Übernehme DATABASE_URL aus der Umgebung."

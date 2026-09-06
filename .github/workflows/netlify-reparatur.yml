@@ -196,6 +196,34 @@ jobs:
             | node -pe 'Object.keys(JSON.parse(require("fs").readFileSync(0,"utf8"))).join("\n")' \
             || echo "(keine)"
 
+      - name: Variablen in allen Kontexten suchen
+        continue-on-error: true
+        run: |
+          NETLIFY="npx --yes netlify-cli@17"
+          # Netlify verwaltet Variablen pro Kontext. Vielleicht liegt die
+          # Datenbank-Variable nur in "production" und taucht deshalb in der
+          # allgemeinen Liste nicht auf. Nur Namen ausgeben.
+          for KONTEXT in production deploy-preview branch-deploy dev; do
+            echo "── Kontext: $KONTEXT"
+            $NETLIFY env:list --context "$KONTEXT" --json 2>/dev/null \
+              | node -pe 'Object.keys(JSON.parse(require("fs").readFileSync(0,"utf8"))).join(", ")' \
+              || echo "   (nicht abfragbar)"
+          done
+
+          echo "── Direkter Zugriff auf NETLIFY_DATABASE_URL"
+          for KONTEXT in production dev; do
+            WERT=$($NETLIFY env:get NETLIFY_DATABASE_URL --context "$KONTEXT" --plain 2>/dev/null | tr -d '\r\n')
+            if [ -n "$WERT" ]; then
+              echo "::add-mask::$WERT"
+              echo "   $KONTEXT: gefunden (${#WERT} Zeichen) – wird als DATABASE_URL gesetzt"
+              $NETLIFY env:set DATABASE_URL "$WERT" --force >/dev/null
+              $NETLIFY env:set DIRECT_URL "$WERT" --force >/dev/null
+              break
+            else
+              echo "   $KONTEXT: nichts"
+            fi
+          done
+
       - name: Datenbank-Lage neu bewerten
         id: diagnose2
         run: |

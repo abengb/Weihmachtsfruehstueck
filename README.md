@@ -85,8 +85,9 @@ npm run dev
 | --- | --- | --- |
 | `DATABASE_URL` | ja | Postgres-Verbindung der App. Bei Neon die **gepoolte** URL (`…-pooler.…`) |
 | `DIRECT_URL` | ja | Direkte Verbindung ohne Pooler – Prisma braucht sie für Migrationen |
-| `NETLIFY_DATABASE_URL` | – | Wird von Netlifys Neon-Integration gesetzt und automatisch als Ersatz für `DATABASE_URL` erkannt |
-| `NETLIFY_DATABASE_URL_UNPOOLED` | – | dito für `DIRECT_URL` |
+| `NETLIFY_DATABASE_URL` | – | Setzt Netlify Database selbst; wird automatisch als Ersatz für `DATABASE_URL` erkannt |
+| `NETLIFY_DATABASE_URL_UNPOOLED` | – | dito für `DIRECT_URL` (bevorzugt für Migrationen) |
+| `POSTGRES_URL`, `POSTGRES_PRISMA_URL`, `DATABASE_URL_UNPOOLED` | – | Weitere gängige Namen, werden ebenfalls erkannt |
 | `APP_URL` | – | Nur für die Link-Ausgabe des Seed-Skripts |
 | `SEED_EVENT_CODE`, `SEED_HOST_KEY` | – | Feste Codes fürs Seed-Event statt zufälliger |
 
@@ -166,9 +167,12 @@ npx netlify-cli sites:create --name weihnachtsfruehstueck-schrickel
 npx netlify-cli link --name weihnachtsfruehstueck-schrickel
 ```
 
-Dann die Datenbank – am einfachsten über Netlifys Neon-Integration im
-Dashboard unter *Site configuration → Extensions → Neon*. Netlify legt die
-Datenbank an und setzt `NETLIFY_DATABASE_URL` selbst; die App erkennt das.
+Dann die Datenbank – am einfachsten über Netlify Database im Dashboard unter
+*Project configuration → Data & Storage → Database*. Netlify legt sie an und
+setzt `NETLIFY_DATABASE_URL` selbst; die App erkennt das.
+
+Kommt die Datenbank nicht an, zeigt das Build-Log unter „Sichtbare
+Datenbank-Variablen" (nur Namen, keine Passwörter), was überhaupt ankommt.
 
 Alternativ ein eigenes Neon-Projekt auf [neon.tech](https://neon.tech):
 

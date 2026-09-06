@@ -1,17 +1,40 @@
 import { PrismaClient } from '@prisma/client'
 
 /**
- * Netlifys Neon-Integration legt die Verbindung unter NETLIFY_DATABASE_URL ab,
- * ein selbst angelegtes Neon-Projekt üblicherweise unter DATABASE_URL.
- * Beides wird hier akzeptiert, damit beide Wege ohne Umbau funktionieren.
+ * Die Verbindung kann unter verschiedenen Namen ankommen, je nachdem wer die
+ * Datenbank bereitstellt. Reihenfolge: selbst gesetzt schlägt Anbieter-Vorgabe,
+ * gepoolt schlägt ungepoolt.
  */
+const URL_KANDIDATEN = [
+  'DATABASE_URL',
+  'NETLIFY_DATABASE_URL',
+  'POSTGRES_PRISMA_URL',
+  'POSTGRES_URL',
+  'NETLIFY_DATABASE_URL_UNPOOLED',
+  'DATABASE_URL_UNPOOLED',
+] as const
+
 export function datenbankUrl(): string | undefined {
-  return process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL || undefined
+  for (const name of URL_KANDIDATEN) {
+    const wert = process.env[name]
+    if (wert) return wert
+  }
+  return undefined
 }
 
 /** Ist überhaupt eine Datenbank hinterlegt? */
 export function istDatenbankBereit(): boolean {
   return Boolean(datenbankUrl())
+}
+
+/**
+ * Nur die Namen der gesetzten Variablen – niemals die Werte. Die Setup-Seite
+ * ist öffentlich erreichbar, und in einem Verbindungs-String steht das
+ * Passwort. Die Namen allein reichen, um zu erkennen, ob überhaupt etwas
+ * ankommt und unter welchem Namen.
+ */
+export function gefundeneDatenbankVariablen(): string[] {
+  return URL_KANDIDATEN.filter((name) => Boolean(process.env[name]))
 }
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient }
@@ -39,9 +62,9 @@ function holeClient(): PrismaClient {
   const url = datenbankUrl()
   if (!url) {
     throw new Error(
-      'Keine Datenbank verbunden. In Netlify unter Site configuration → ' +
-        'Extensions die Neon-Integration installieren, oder DATABASE_URL als ' +
-        'Umgebungsvariable setzen.',
+      'Keine Datenbank verbunden. Im Netlify-Dashboard unter Project ' +
+        'configuration → Data & Storage → Database eine Datenbank anlegen, ' +
+        'oder DATABASE_URL als Umgebungsvariable setzen.',
     )
   }
 

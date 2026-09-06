@@ -348,24 +348,28 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "→ Startseite abrufen"
-          SEITE=$(curl -sS --retry 5 --retry-delay 5 --retry-all-errors "$URL/")
+          echo "→ Erreichbarkeit prüfen"
+          curl -sS --retry 5 --retry-delay 5 --retry-all-errors -o /dev/null "$URL/"
 
-          if echo "$SEITE" | grep -q "Fast fertig"; then
+          # Die Wahrheit steht nicht im HTML der Startseite, sondern dort, wo
+          # wirklich geschrieben wird. Gefragt wird deshalb die Schnittstelle:
+          # sie läuft garantiert bei jedem Aufruf neu und sieht die Variablen,
+          # die Netlify erst zur Laufzeit einspielt.
+          echo "→ Testereignis anlegen und Kochzeiten nachrechnen"
+          NEU=$(curl -sS -X POST "$URL/api/events" -H 'Content-Type: application/json' \
+            -d '{"name":"Selbsttest","datum":"2026-12-24T09:00:00.000Z"}')
+
+          if echo "$NEU" | grep -qi "datenbank"; then
             {
               echo "## Noch ohne Datenbank"
               echo
               echo "Die Seite ist online ($URL), findet aber keine Datenbank."
-              echo "Im Netlify-Dashboard unter *Data & Storage → Database* eine anlegen,"
-              echo "dann diesen Workflow erneut starten."
+              echo "Antwort der Schnittstelle:"
+              echo '```'; echo "$NEU" | head -c 400; echo; echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
             echo "::warning::Seite läuft, Datenbank fehlt noch"
             exit 0
           fi
-
-          echo "→ Testereignis anlegen und Kochzeiten nachrechnen"
-          NEU=$(curl -sS -X POST "$URL/api/events" -H 'Content-Type: application/json' \
-            -d '{"name":"Selbsttest","datum":"2026-12-24T09:00:00.000Z"}')
           CODE=$(echo "$NEU" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).eventCode ?? ""')
           KEY=$(echo "$NEU" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).hostKey ?? ""')
 

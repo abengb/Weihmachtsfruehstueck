@@ -6,6 +6,14 @@ import { WespenProvider } from '@/components/Wespe'
 import { AsternUndAdventsgesteck, KaffeetischDraussen } from '@/components/Illustrationen'
 import { WespenPlatz } from '@/components/Wespe'
 
+/**
+ * Bei jedem Aufruf neu rendern. Ohne das würde die Seite beim Bauen einmal
+ * erzeugt und danach eingefroren – und weil Netlify die Zugangsdaten der
+ * Datenbank erst zur Laufzeit einspielt, bliebe der Hinweis "Fast fertig"
+ * dann für immer stehen, obwohl die Datenbank längst da ist.
+ */
+export const dynamic = 'force-dynamic'
+
 export default function Startseite() {
   if (!istDatenbankBereit()) return <OhneDatenbank />
 

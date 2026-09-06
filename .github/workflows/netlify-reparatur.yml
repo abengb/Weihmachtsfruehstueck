@@ -351,6 +351,39 @@ jobs:
           $NETLIFY env:set DIRECT_URL "${UNPOOLED:-$WERT}" --force >/dev/null
           echo "- \`NETLIFY_DATABASE_URL\` nach \`DATABASE_URL\` kopiert (Wert nirgends ausgegeben)." >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Probelauf der Migration hier, wo das Log lesbar ist
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          # Netlify gibt sein Build-Log ueber die API nicht heraus. Derselbe
+          # Schritt hier zeigt dieselbe Fehlermeldung - nur lesbar.
+          echo "Laenge der Verbindung: ${#DATABASE_URL} Zeichen"
+          case "$DATABASE_URL" in
+            postgres://*|postgresql://*) echo "Form: sieht nach Postgres aus" ;;
+            "") echo "::error::Das Secret DATABASE_URL ist leer." ;;
+            *) echo "::error title=Verbindung::faengt nicht mit postgresql:// an – erstes Zeichen: '$(printf %.1s "$DATABASE_URL")'" ;;
+          esac
+
+          [ -z "$DATABASE_URL" ] && exit 0
+
+          npx prisma generate > /dev/null 2>&1 || true
+          # Ohne "if" wuerde die Shell (bash -e) hier abbrechen, bevor der
+          # Exit-Code ueberhaupt ausgewertet ist.
+          if npx prisma migrate deploy > /tmp/migrate.txt 2>&1; then ERGEBNIS=0; else ERGEBNIS=1; fi
+          sed -E -i 's#postgres(ql)?://[^[:space:]"]+#postgresql://REDIGIERT#g' /tmp/migrate.txt
+          cat /tmp/migrate.txt
+          echo "Exit-Code: $ERGEBNIS"
+          if [ "$ERGEBNIS" != "0" ]; then
+            grep -Ei 'error|P[0-9]{4}|cannot|denied|refused|timeout|does not exist' /tmp/migrate.txt \
+              | head -6 | while IFS= read -r z; do
+                echo "::error title=Migration::${z:0:300}"
+              done
+          else
+            echo "::notice title=Migration::Tabellen erfolgreich angelegt."
+          fi
+
       - name: Bauen und veröffentlichen
         id: deploy
         if: ${{ inputs.neu_deployen }}

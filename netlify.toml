@@ -1,0 +1,26 @@
+[build]
+  # Prisma-Migrationen laufen vor dem Next-Build, damit die Datenbank
+  # beim ersten Deploy schon das richtige Schema hat.
+  command = "prisma generate && prisma migrate deploy && next build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  # Prisma soll den Client im Build frisch erzeugen.
+  PRISMA_HIDE_UPDATE_MESSAGE = "true"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+[[headers]]
+  for = "/e/*"
+  [headers.values]
+    # Gast- und Gastgeber-Links gehören nicht in Suchmaschinen.
+    X-Robots-Tag = "noindex, nofollow"
+    Referrer-Policy = "no-referrer"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"

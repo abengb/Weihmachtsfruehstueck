@@ -24,9 +24,11 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { lies, schreibe, useSeitenWurf, useSpeicher } from '@/lib/browserSpeicher'
 
 const ZAEHLER_KEY = 'wespenAbwehr'
 const SESSION_KEY = 'wespeVerscheucht'
+const FLUGDAUER = 900
 
 type WespenKontext = {
   registriere: (id: string) => () => void
@@ -38,50 +40,43 @@ const Kontext = createContext<WespenKontext | null>(null)
 
 export function WespenProvider({ children }: { children: ReactNode }) {
   const [plaetze, setPlaetze] = useState<string[]>([])
-  const [gewaehlt, setGewaehlt] = useState<string | null>(null)
-  const [weg, setWeg] = useState(true) // bis zum Mount nichts rendern -> keine Hydration-Differenz
+  const [ausgeflogen, setAusgeflogen] = useState(false)
   const [toast, setToast] = useState(false)
 
-  useEffect(() => {
-    try {
-      setWeg(window.sessionStorage.getItem(SESSION_KEY) === '1')
-    } catch {
-      setWeg(false)
-    }
-  }, [])
+  // Einmal pro Seitenaufruf gewürfelt – danach sitzt sie still.
+  const wurf = useSeitenWurf()
+
+  const verscheucht = useSpeicher('session', SESSION_KEY) === '1'
+  const weg = verscheucht || ausgeflogen
 
   const registriere = useCallback((id: string) => {
     setPlaetze((alt) => (alt.includes(id) ? alt : [...alt, id]))
     return () => setPlaetze((alt) => alt.filter((p) => p !== id))
   }, [])
 
-  // Erst wenn alle Plätze der Seite gemeldet sind, wird einer ausgelost.
-  useEffect(() => {
-    if (weg || plaetze.length === 0) {
-      setGewaehlt(null)
-      return
-    }
-    setGewaehlt((aktuell) =>
-      aktuell && plaetze.includes(aktuell)
-        ? aktuell
-        : plaetze[Math.floor(Math.random() * plaetze.length)],
-    )
-  }, [plaetze, weg])
+  const gewaehlt = useMemo(() => {
+    if (weg || plaetze.length === 0) return null
+    return plaetze[Math.floor(wurf * plaetze.length) % plaetze.length]
+  }, [weg, plaetze, wurf])
 
   const verscheuche = useCallback(() => {
     setToast(true)
-    try {
-      const bisher = Number(window.localStorage.getItem(ZAEHLER_KEY) ?? '0')
-      window.localStorage.setItem(ZAEHLER_KEY, String((Number.isFinite(bisher) ? bisher : 0) + 1))
-      window.sessionStorage.setItem(SESSION_KEY, '1')
-    } catch {
-      // Privater Modus o. ä. – dann zählt eben nichts mit.
-    }
-    window.setTimeout(() => setWeg(true), 900)
+
+    const bisher = Number(lies('local', ZAEHLER_KEY) ?? '0')
+    schreibe('local', ZAEHLER_KEY, String((Number.isFinite(bisher) ? bisher : 0) + 1))
+
+    // Erst wegfliegen lassen, dann für die Session abmelden.
+    window.setTimeout(() => {
+      setAusgeflogen(true)
+      schreibe('session', SESSION_KEY, '1')
+    }, FLUGDAUER)
     window.setTimeout(() => setToast(false), 3200)
   }, [])
 
-  const wert = useMemo(() => ({ registriere, gewaehlt, verscheuche }), [registriere, gewaehlt, verscheuche])
+  const wert = useMemo(
+    () => ({ registriere, gewaehlt, verscheuche }),
+    [registriere, gewaehlt, verscheuche],
+  )
 
   return (
     <Kontext.Provider value={wert}>
@@ -100,7 +95,8 @@ export function WespenProvider({ children }: { children: ReactNode }) {
 
 /**
  * Ein möglicher Sitzplatz. Wird um eine Illustration gelegt und positioniert
- * die Wespe über `className` (absolute Koordinaten des jeweiligen Motivs).
+ * die Wespe über `className` – am besten in Prozent des Bildes, damit sie
+ * auch bei anderer Größe noch genau dort sitzt.
  * Ohne Provider (Kochplan, Timer) rendert das hier schlicht nichts.
  */
 export function WespenPlatz({ className, drehung = 0 }: { className: string; drehung?: number }) {

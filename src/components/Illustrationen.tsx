@@ -5,14 +5,38 @@
 
 type SvgProps = { className?: string }
 
+/**
+ * Der Zweig hängt im Kopf auf dunklem Tannengrün – dort braucht er helle
+ * Töne, sonst verschwindet er in der Fläche.
+ */
+type Ton = 'hell' | 'dunkel'
+
+const TOENE = {
+  dunkel: {
+    tanne: '#1e4d3b',
+    beere: '#a11b2e',
+    beereHell: '#c8465a',
+    holz: '#6b4a2b',
+    blatt: '#7ea24f',
+  },
+  hell: {
+    tanne: '#a9c9a8',
+    beere: '#e07385',
+    beereHell: '#f0a3ad',
+    holz: '#c2a184',
+    blatt: '#b8d48c',
+  },
+} as const
+
 /* ---------------------------------------------------------------------------
    Tannenzweig neben Apfelbaumzweig – die Grundidee der ganzen App in einem Bild
    --------------------------------------------------------------------------- */
-export function TannenUndApfelzweig({ className }: SvgProps) {
+export function TannenUndApfelzweig({ className, ton = 'dunkel' }: SvgProps & { ton?: Ton }) {
+  const f = TOENE[ton]
   return (
     <svg viewBox="0 0 240 96" className={className} role="presentation" aria-hidden="true">
       {/* Tannenzweig, von links */}
-      <g stroke="#1e4d3b" strokeWidth="2.4" strokeLinecap="round" fill="none">
+      <g stroke={f.tanne} strokeWidth="2.4" strokeLinecap="round" fill="none">
         <path d="M6 62 C34 58 62 52 92 44" />
         {[
           [20, 60],
@@ -32,28 +56,28 @@ export function TannenUndApfelzweig({ className }: SvgProps) {
         ))}
       </g>
       {/* Beeren am Tannenzweig */}
-      <circle cx="41" cy="62" r="4" fill="#a11b2e" />
-      <circle cx="52" cy="65" r="3.2" fill="#a11b2e" />
-      <circle cx="46" cy="70" r="2.6" fill="#c8465a" />
+      <circle cx="41" cy="62" r="4" fill={f.beere} />
+      <circle cx="52" cy="65" r="3.2" fill={f.beere} />
+      <circle cx="46" cy="70" r="2.6" fill={f.beereHell} />
 
       {/* Apfelbaumzweig, von rechts */}
-      <g stroke="#6b4a2b" strokeWidth="2.6" strokeLinecap="round" fill="none">
+      <g stroke={f.holz} strokeWidth="2.6" strokeLinecap="round" fill="none">
         <path d="M234 40 C210 46 186 54 158 58" />
         <path d="M198 51 l10 -12" />
         <path d="M176 56 l-8 -13" />
       </g>
       {/* Apfelblätter */}
-      <g fill="#7ea24f">
+      <g fill={f.blatt}>
         <path d="M206 40 c8 -9 18 -9 21 -2 -6 8 -16 9 -21 2Z" />
         <path d="M168 43 c-9 -7 -9 -17 -2 -20 7 6 8 15 2 20Z" />
         <path d="M186 60 c-10 3 -18 -3 -17 -10 9 -1 16 4 17 10Z" />
       </g>
       {/* Äpfel */}
       <g>
-        <circle cx="193" cy="66" r="9" fill="#a11b2e" />
-        <path d="M193 57 v-5" stroke="#6b4a2b" strokeWidth="2" strokeLinecap="round" />
-        <circle cx="215" cy="59" r="6.5" fill="#c8465a" />
-        <path d="M215 52.5 v-4" stroke="#6b4a2b" strokeWidth="1.8" strokeLinecap="round" />
+        <circle cx="193" cy="66" r="9" fill={f.beere} />
+        <path d="M193 57 v-5" stroke={f.holz} strokeWidth="2" strokeLinecap="round" />
+        <circle cx="215" cy="59" r="6.5" fill={f.beereHell} />
+        <path d="M215 52.5 v-4" stroke={f.holz} strokeWidth="1.8" strokeLinecap="round" />
       </g>
     </svg>
   )

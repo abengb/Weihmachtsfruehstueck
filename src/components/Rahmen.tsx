@@ -19,10 +19,10 @@ export function Kopfzeile({
   return (
     <header className="border-b border-creme-rand bg-tanne text-creme">
       <div className="mx-auto w-full max-w-3xl px-4 pt-5 pb-6">
-        <div className="relative mb-3">
-          <TannenUndApfelzweig className="h-12 w-full max-w-[240px] opacity-95" />
+        <div className="relative mb-3 inline-block">
+          <TannenUndApfelzweig ton="hell" className="block h-[96px] w-[240px]" />
           {/* Sitzplatz: auf dem großen Apfel rechts im Zweig */}
-          <WespenPlatz className="left-[189px] top-[54px]" drehung={-14} />
+          <WespenPlatz className="left-[73%] top-[48%]" drehung={-14} />
         </div>
 
         <p className="text-[0.72rem] font-medium tracking-[0.16em] text-nachmittag-hell uppercase">
@@ -50,15 +50,17 @@ export function Fusszeile() {
   return (
     <footer className="mt-14 border-t border-creme-rand bg-creme-tief">
       <div className="mx-auto w-full max-w-3xl px-4 py-8">
-        <div className="relative flex items-end justify-between gap-4">
-          <GlindeSkyline className="h-16 w-full max-w-[320px] text-tanne opacity-55" />
-          {/* Sitzplatz: auf dem Mühlrad */}
-          <WespenPlatz className="left-[92px] top-[36px]" drehung={8} />
+        <div className="flex items-end justify-between gap-4">
+          <div className="relative w-[320px] max-w-full min-w-0">
+            <GlindeSkyline className="block h-auto w-full text-tanne opacity-55" />
+            {/* Sitzplatz: auf dem Mühlrad der Kupfermühle */}
+            <WespenPlatz className="left-[26%] top-[50%]" drehung={8} />
+          </div>
 
           <div className="relative shrink-0">
-            <Marmeladenglas className="h-[72px] w-auto opacity-90" />
+            <Marmeladenglas className="block h-24 w-auto opacity-90" />
             {/* Sitzplatz: auf dem Rand des Marmeladenglases */}
-            <WespenPlatz className="left-[6px] top-[10px]" drehung={-22} />
+            <WespenPlatz className="left-[16%] top-[18%]" drehung={-22} />
           </div>
         </div>
 

@@ -1,10 +1,14 @@
 import NeuesEvent from '@/components/NeuesEvent'
+import { OhneDatenbank } from '@/components/OhneDatenbank'
+import { istDatenbankBereit } from '@/lib/prisma'
 import { Fusszeile, Karte, Kopfzeile } from '@/components/Rahmen'
 import { WespenProvider } from '@/components/Wespe'
 import { AsternUndAdventsgesteck, KaffeetischDraussen } from '@/components/Illustrationen'
 import { WespenPlatz } from '@/components/Wespe'
 
 export default function Startseite() {
+  if (!istDatenbankBereit()) return <OhneDatenbank />
+
   return (
     <WespenProvider>
       <Kopfzeile

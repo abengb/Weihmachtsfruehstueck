@@ -2,8 +2,10 @@ import { notFound } from 'next/navigation'
 import KochplanAnsicht from '@/components/KochplanAnsicht'
 import { Kopfzeile } from '@/components/Rahmen'
 import { KeinZugang } from '@/components/KeinZugang'
+import { OhneDatenbank } from '@/components/OhneDatenbank'
 import { erstelleKochplan } from '@/lib/eggTiming'
 import { istHost, ladeEvent, planEingabe, timingAusEvent } from '@/lib/eventData'
+import { istDatenbankBereit } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,6 +18,9 @@ export default async function KochplanSeite({
   const { eventCode } = await params
   const { key } = await searchParams
   const schluessel = typeof key === 'string' ? key : null
+
+  if (!istDatenbankBereit()) return <OhneDatenbank />
+
 
   const event = await ladeEvent(eventCode)
   if (!event) notFound()

@@ -1,6 +1,11 @@
 import 'server-only'
 import { NextResponse } from 'next/server'
+import { istDatenbankBereit } from './prisma'
 import { FehlerhafteEingabe } from './validierung'
+
+export const OHNE_DATENBANK =
+  'Die App ist online, aber noch ohne Datenbank. Die Gastgeber müssen in Netlify ' +
+  'einmal die Neon-Integration verbinden – danach funktioniert alles.'
 
 export function fehler(nachricht: string, status = 400) {
   return NextResponse.json({ fehler: nachricht }, { status })
@@ -8,6 +13,7 @@ export function fehler(nachricht: string, status = 400) {
 
 /** Kapselt Handler, damit jede Route dieselben Fehlerantworten liefert. */
 export async function handle<T>(fn: () => Promise<T>): Promise<NextResponse> {
+  if (!istDatenbankBereit()) return fehler(OHNE_DATENBANK, 503)
   try {
     return NextResponse.json(await fn())
   } catch (e) {

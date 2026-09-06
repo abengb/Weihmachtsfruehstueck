@@ -3,7 +3,9 @@ import EinstellungenApp from '@/components/EinstellungenApp'
 import { Fusszeile, Kopfzeile } from '@/components/Rahmen'
 import { KeinZugang } from '@/components/KeinZugang'
 import { WespenProvider } from '@/components/Wespe'
+import { OhneDatenbank } from '@/components/OhneDatenbank'
 import { eventState, istHost, ladeEvent } from '@/lib/eventData'
+import { istDatenbankBereit } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,6 +18,9 @@ export default async function EinstellungenSeite({
   const { eventCode } = await params
   const { key } = await searchParams
   const schluessel = typeof key === 'string' ? key : null
+
+  if (!istDatenbankBereit()) return <OhneDatenbank />
+
 
   const event = await ladeEvent(eventCode)
   if (!event) notFound()

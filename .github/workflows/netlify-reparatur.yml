@@ -171,30 +171,43 @@ jobs:
         if: ${{ steps.diagnose.outputs.hat_netlify_db != 'ja' && steps.diagnose.outputs.hat_database_url != 'ja' }}
         continue-on-error: true
         run: |
-          # Die neuere CLI kann Netlify DB selbst bereitstellen. Welche
-          # Unterbefehle es gibt, steht nicht fest – deshalb erst nachsehen,
-          # dann versuchen. Fehlschläge sind hier kein Beinbruch.
+          # WICHTIG: hier kein "| head". Der Exit-Code einer Pipe ist der des
+          # letzten Glieds – "head" gelingt immer, damit war jeder Fehlschlag
+          # von "db init" unsichtbar und die Rückfall-Varianten liefen nie.
           NEU="npx --yes netlify-cli@latest"
 
-          echo "═══ Welche db-Befehle kennt die CLI? ═══"
-          $NEU db --help 2>&1 | head -40 || echo "(kein db-Befehl vorhanden)"
-
-          echo
           echo "═══ Aktueller Zustand ═══"
-          $NEU db status 2>&1 | head -20 || echo "(db status nicht verfügbar)"
+          $NEU db status 2>&1 || echo "(db status nicht verfügbar)"
 
           echo
-          echo "═══ Versuch, eine Datenbank anzulegen ═══"
-          $NEU db init --no-boilerplate --overwrite 2>&1 | head -40 \
-            || $NEU db init --no-boilerplate 2>&1 | head -40 \
-            || $NEU db init 2>&1 | head -40 \
-            || echo "(db init nicht möglich)"
+          echo "═══ Datenbank bereitstellen ═══"
+          # "--yes" ist der einzige nicht-interaktive Schalter, den
+          # "netlify database init" kennt (nachgesehen in db --help).
+          if $NEU db init --yes 2>&1; then
+            echo "→ db init durchgelaufen."
+          else
+            echo "→ db init fehlgeschlagen (Ausgabe oben)."
+          fi
+
+          echo
+          echo "═══ Antwortet die Datenbank? ═══"
+          $NEU db connect --query "SELECT 1" 2>&1 || echo "(kein Zugriff über db connect)"
 
           echo
           echo "═══ Variablen danach ═══"
           $NEU env:list --json 2>/dev/null \
             | node -pe 'Object.keys(JSON.parse(require("fs").readFileSync(0,"utf8"))).join("\n")' \
             || echo "(keine)"
+
+      - name: Verbindung im ganzen Konto suchen
+        continue-on-error: true
+        run: |
+          # Bei neun Projekten mit Zufallsnamen ist es leicht, die Datenbank
+          # im falschen anzulegen. Dieses Skript sieht bei jedem Projekt nach
+          # und kopiert eine gefundene Verbindung hierher – ohne den Wert je
+          # auszugeben.
+          SITE_ID=$(node -pe 'try{JSON.parse(require("fs").readFileSync(".netlify/state.json","utf8")).siteId}catch{""}')
+          node scripts/netlify-datenbank-suchen.mjs "$SITE_ID"
 
       - name: Variablen in allen Kontexten suchen
         continue-on-error: true

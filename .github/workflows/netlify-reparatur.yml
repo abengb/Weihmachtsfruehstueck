@@ -95,14 +95,25 @@ jobs:
           $NETLIFY sites:list --json > /tmp/sites.json
           node -e '
             const s = JSON.parse(require("fs").readFileSync("/tmp/sites.json","utf8"))
-            for (const x of s) console.log("  " + x.name + "   (" + (x.ssl_url || x.url) + ")")
+            for (const x of s) {
+              const repo = x.build_settings?.repo_url ?? x.build_settings?.repo_path ?? "kein Repo"
+              console.log("  " + x.name.padEnd(30) + repo)
+            }
           '
 
-          # Kandidaten: Name deutet auf dieses Projekt hin
+          # Das sichere Kriterium ist nicht der Name, sondern das verknuepfte
+          # Repository. Netlify vergibt beim Import Zufallsnamen.
           TREFFER=$(node -e '
             const s = JSON.parse(require("fs").readFileSync("/tmp/sites.json","utf8"))
-            const passt = s.filter((x) => /weih|fruehstueck|frühstück|schrickel|ei/i.test(x.name))
-            const wahl = passt.length === 1 ? passt : (s.length === 1 ? s : [])
+            const repoVon = (x) =>
+              (x.build_settings?.repo_url ?? "") + " " + (x.build_settings?.repo_path ?? "")
+            const ausRepo = s.filter((x) => /weihmachtsfruehstueck/i.test(repoVon(x)))
+            const ausName = s.filter((x) => /weih|fruehstueck|schrickel/i.test(x.name))
+            const wahl =
+              ausRepo.length === 1 ? ausRepo
+              : ausName.length === 1 ? ausName
+              : s.length === 1 ? s
+              : []
             console.log(wahl.length === 1 ? wahl[0].name : "")
           ')
 

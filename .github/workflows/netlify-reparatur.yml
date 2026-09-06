@@ -66,6 +66,47 @@ jobs:
             exit 1
           fi
 
+      - name: Verbindung säubern
+        env:
+          ROH: ${{ secrets.DATABASE_URL }}
+        run: |
+          # Neon (und pgAdmin, und Supabase) zeigen den Verbindungs-String
+          # gern als fertigen Befehl an:  psql 'postgresql://...'
+          # Kopiert man die ganze Zeile, steckt das "psql " und ein
+          # Anführungszeichen mit drin - und Prisma antwortet mit
+          #   P1013: The scheme is not recognized in database URL.
+          # Das hier raeumt solche Beigaben weg, statt den Menschen
+          # nochmal kopieren zu lassen.
+          if [ -z "$ROH" ]; then
+            echo "::notice title=Verbindung::Kein Secret DATABASE_URL hinterlegt."
+            echo "DB_SAUBER=" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          SAUBER=$(printf '%s' "$ROH" \
+            | tr -d '\r\n' \
+            | sed -E "s/^[[:space:]]*psql[[:space:]]+//I" \
+            | sed -E "s/^[\"']//; s/[\"'][[:space:]]*$//" \
+            | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+
+          echo "::add-mask::$SAUBER"
+
+          case "$SAUBER" in
+            postgres://*|postgresql://*)
+              if [ "$SAUBER" != "$ROH" ]; then
+                echo "::notice title=Verbindung::Beigaben entfernt (${#ROH} → ${#SAUBER} Zeichen), Form jetzt korrekt."
+              else
+                echo "::notice title=Verbindung::Form korrekt (${#SAUBER} Zeichen)."
+              fi
+              echo "DB_SAUBER=$SAUBER" >> "$GITHUB_ENV"
+              ;;
+            *)
+              # Nie den Wert ausgeben - nur, womit er anfaengt.
+              echo "::error title=Verbindung::Auch nach dem Saeubern kein postgresql://-Anfang. Erste 12 Zeichen: '$(printf %.12s "$SAUBER")…'"
+              echo "DB_SAUBER=" >> "$GITHUB_ENV"
+              ;;
+          esac
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -310,10 +351,10 @@ jobs:
           set -euo pipefail
           NETLIFY="npx --yes netlify-cli@17"
 
-          if [ -n "${{ secrets.DATABASE_URL }}" ]; then
+          if [ -n "${DB_SAUBER:-}" ]; then
             echo "Eigene DATABASE_URL aus den Secrets wird gesetzt."
-            $NETLIFY env:set DATABASE_URL "${{ secrets.DATABASE_URL }}" --force >/dev/null
-            $NETLIFY env:set DIRECT_URL "${{ secrets.DATABASE_URL }}" --force >/dev/null
+            $NETLIFY env:set DATABASE_URL "${DB_SAUBER:-}" --force >/dev/null
+            $NETLIFY env:set DIRECT_URL "${DB_SAUBER:-}" --force >/dev/null
             echo "- Eigene \`DATABASE_URL\` gesetzt." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -354,8 +395,8 @@ jobs:
       - name: Probelauf der Migration hier, wo das Log lesbar ist
         continue-on-error: true
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DIRECT_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ env.DB_SAUBER }}
+          DIRECT_URL: ${{ env.DB_SAUBER }}
         run: |
           # Netlify gibt sein Build-Log ueber die API nicht heraus. Derselbe
           # Schritt hier zeigt dieselbe Fehlermeldung - nur lesbar.
@@ -479,8 +520,8 @@ jobs:
           done
 
           if [ "$AUSWEICHEN" = "ja" ]; then
-            export DATABASE_URL="${{ secrets.DATABASE_URL }}"
-            export DIRECT_URL="${{ secrets.DATABASE_URL }}"
+            export DATABASE_URL="${DB_SAUBER:-}"
+            export DIRECT_URL="${DB_SAUBER:-}"
             $NETLIFY build
             $NETLIFY deploy --prod --no-build --message "Reparatur-Workflow (ohne Netlify-Build)" 2>&1 | tail -20
           fi

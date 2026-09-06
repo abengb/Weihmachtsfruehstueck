@@ -223,6 +223,36 @@ jobs:
             echo "::notice title=db status::${zeile:0:400}"
           done
 
+      - name: Was weiss Netlify ueber Erweiterungen dieses Projekts?
+        continue-on-error: true
+        run: |
+          # "db status" meldet die Datenbank als aktiv, aber es existiert
+          # nirgends eine Verbindung. Entweder ist nur die Erweiterung
+          # eingeschaltet und gar keine Instanz angelegt - oder die Verbindung
+          # haengt an der Erweiterung statt an den Variablen. Diese Endpunkte
+          # sagen, was von beidem stimmt. Ausgegeben werden Status und eine
+          # kurze, redigierte Antwort.
+          SITE_ID=$(node -pe 'try{JSON.parse(require("fs").readFileSync(".netlify/state.json","utf8")).siteId}catch{""}')
+          KONTO=$(curl -sS -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
+            "https://api.netlify.com/api/v1/sites/$SITE_ID" \
+            | node -pe 'const s=JSON.parse(require("fs").readFileSync(0,"utf8")); s.account_slug ?? s.account_id ?? ""')
+          echo "Konto: $KONTO"
+
+          probiere() {
+            ANTWORT=$(curl -sS -w '\n%{http_code}' -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" "$1" 2>/dev/null || echo "fehler")
+            CODE=$(echo "$ANTWORT" | tail -1)
+            RUMPF=$(echo "$ANTWORT" | head -n -1 \
+              | sed -E 's#postgres(ql)?://[^[:space:]"]+#postgresql://REDIGIERT#g' | head -c 300 | tr -d '\n')
+            echo "  [$CODE] $2"
+            echo "        $RUMPF"
+            echo "::notice title=Erweiterung::[$CODE] $2 :: ${RUMPF:0:300}"
+          }
+
+          probiere "https://api.netlify.com/api/v1/sites/$SITE_ID/service-instances" "service-instances"
+          probiere "https://api.netlify.com/api/v1/sites/$SITE_ID/services" "services"
+          probiere "https://api.netlify.com/api/v1/accounts/$KONTO/integrations" "integrations (Konto)"
+          probiere "https://api.netlify.com/api/v1/sites/$SITE_ID/integrations/safe" "integrations (Projekt)"
+
       - name: Verbindung im ganzen Konto suchen
         continue-on-error: true
         run: |

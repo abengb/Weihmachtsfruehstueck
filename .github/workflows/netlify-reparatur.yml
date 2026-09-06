@@ -167,6 +167,47 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Datenbank anlegen, falls keine da ist
+        if: ${{ steps.diagnose.outputs.hat_netlify_db != 'ja' && steps.diagnose.outputs.hat_database_url != 'ja' }}
+        continue-on-error: true
+        run: |
+          # Die neuere CLI kann Netlify DB selbst bereitstellen. Welche
+          # Unterbefehle es gibt, steht nicht fest – deshalb erst nachsehen,
+          # dann versuchen. Fehlschläge sind hier kein Beinbruch.
+          NEU="npx --yes netlify-cli@latest"
+
+          echo "═══ Welche db-Befehle kennt die CLI? ═══"
+          $NEU db --help 2>&1 | head -40 || echo "(kein db-Befehl vorhanden)"
+
+          echo
+          echo "═══ Aktueller Zustand ═══"
+          $NEU db status 2>&1 | head -20 || echo "(db status nicht verfügbar)"
+
+          echo
+          echo "═══ Versuch, eine Datenbank anzulegen ═══"
+          $NEU db init --no-boilerplate --overwrite 2>&1 | head -40 \
+            || $NEU db init --no-boilerplate 2>&1 | head -40 \
+            || $NEU db init 2>&1 | head -40 \
+            || echo "(db init nicht möglich)"
+
+          echo
+          echo "═══ Variablen danach ═══"
+          $NEU env:list --json 2>/dev/null \
+            | node -pe 'Object.keys(JSON.parse(require("fs").readFileSync(0,"utf8"))).join("\n")' \
+            || echo "(keine)"
+
+      - name: Datenbank-Lage neu bewerten
+        id: diagnose2
+        run: |
+          set -euo pipefail
+          NETLIFY="npx --yes netlify-cli@17"
+          NAMEN=$($NETLIFY env:list --json 2>/dev/null \
+            | node -pe 'Object.keys(JSON.parse(require("fs").readFileSync(0,"utf8"))).join("\n")' || echo "")
+          echo "Variablen jetzt:"; if [ -z "$NAMEN" ]; then echo "  (keine)"; else echo "$NAMEN" | sed 's/^/  /'; fi
+          hat() { echo "$NAMEN" | grep -qx "$1"; }
+          hat DATABASE_URL && echo "hat_database_url=ja" >> "$GITHUB_OUTPUT" || echo "hat_database_url=nein" >> "$GITHUB_OUTPUT"
+          hat NETLIFY_DATABASE_URL && echo "hat_netlify_db=ja" >> "$GITHUB_OUTPUT" || echo "hat_netlify_db=nein" >> "$GITHUB_OUTPUT"
+
       - name: Datenbank-Verbindung an die richtige Stelle kopieren
         if: ${{ inputs.datenbank_reparieren }}
         run: |
@@ -181,13 +222,13 @@ jobs:
             exit 0
           fi
 
-          if [ "${{ steps.diagnose.outputs.hat_database_url }}" = "ja" ]; then
+          if [ "${{ steps.diagnose2.outputs.hat_database_url }}" = "ja" ]; then
             echo "DATABASE_URL ist bereits gesetzt, nichts zu tun."
             echo "- \`DATABASE_URL\` war schon vorhanden." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
-          if [ "${{ steps.diagnose.outputs.hat_netlify_db }}" != "ja" ]; then
+          if [ "${{ steps.diagnose2.outputs.hat_netlify_db }}" != "ja" ]; then
             {
               echo
               echo "> **Es gibt gar keine Datenbank-Variable.** Also ist die Netlify-Datenbank"

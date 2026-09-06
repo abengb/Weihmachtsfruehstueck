@@ -1,0 +1,266 @@
+name: Netlify einrichten und prüfen
+
+# Diagnose und Reparatur für eine BEREITS bestehende Netlify-Site.
+#
+# Läuft auf einem GitHub-Runner, weil der freien Netzzugang zu Netlify hat.
+# Damit lässt sich von außen feststellen, welche Umgebungsvariablen die Site
+# wirklich kennt – und die Datenbank-Verbindung notfalls an die richtige
+# Stelle kopieren.
+#
+# Gebraucht wird ein einziges Repository-Secret:
+#   NETLIFY_AUTH_TOKEN
+#   Netlify → User settings → Applications → Personal access tokens
+#   → New access token. Der Wert gehört in
+#   Settings → Secrets and variables → Actions → New repository secret.
+#   NIEMALS in einen Chat oder in den Code.
+#
+# Optional:
+#   NETLIFY_SITE_ID   genauer als der Name, falls es mehrere Sites gibt
+#   DATABASE_URL      eigene Postgres-Verbindung, überschreibt alles andere
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_name:
+        description: Name der bestehenden Netlify-Site
+        required: true
+        default: weihnachtsfruehstueck-schrickel
+      datenbank_reparieren:
+        description: NETLIFY_DATABASE_URL nach DATABASE_URL kopieren, falls nötig
+        type: boolean
+        default: true
+      neu_deployen:
+        description: Danach neu bauen und veröffentlichen
+        type: boolean
+        default: true
+
+concurrency:
+  group: netlify-deploy
+  cancel-in-progress: false
+
+jobs:
+  einrichten:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      SITE_NAME: ${{ inputs.site_name }}
+
+    steps:
+      - name: Token prüfen
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ]; then
+            {
+              echo "## Es fehlt das Netlify-Token"
+              echo
+              echo "Bitte anlegen unter **Settings → Secrets and variables → Actions →"
+              echo "New repository secret**, Name genau \`NETLIFY_AUTH_TOKEN\`."
+              echo
+              echo "Den Wert bekommst du in Netlify unter **User settings → Applications"
+              echo "→ Personal access tokens → New access token**."
+              echo
+              echo "Danach diesen Workflow erneut starten."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::NETLIFY_AUTH_TOKEN fehlt"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Mit der Site verbinden
+        run: |
+          set -euo pipefail
+          NETLIFY="npx --yes netlify-cli@17"
+          if [ -n "${{ secrets.NETLIFY_SITE_ID }}" ]; then
+            $NETLIFY link --id "${{ secrets.NETLIFY_SITE_ID }}"
+          else
+            $NETLIFY link --name "$SITE_NAME"
+          fi
+
+      - name: Welche Variablen kennt die Site wirklich?
+        id: diagnose
+        run: |
+          set -euo pipefail
+          NETLIFY="npx --yes netlify-cli@17"
+
+          # Nur Namen ins Log. Werte enthalten Passwörter.
+          NAMEN=$($NETLIFY env:list --json 2>/dev/null \
+            | node -pe 'Object.keys(JSON.parse(require("fs").readFileSync(0,"utf8"))).join("\n")' || echo "")
+
+          echo "Bekannte Variablennamen dieser Site:"
+          if [ -z "$NAMEN" ]; then echo "  (keine)"; else echo "$NAMEN" | sed 's/^/  /'; fi
+
+          hat() { echo "$NAMEN" | grep -qx "$1"; }
+          hat DATABASE_URL && echo "hat_database_url=ja" >> "$GITHUB_OUTPUT" || echo "hat_database_url=nein" >> "$GITHUB_OUTPUT"
+          hat NETLIFY_DATABASE_URL && echo "hat_netlify_db=ja" >> "$GITHUB_OUTPUT" || echo "hat_netlify_db=nein" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Variablen der Site"
+            echo
+            echo '```'
+            if [ -z "$NAMEN" ]; then echo "(keine)"; else echo "$NAMEN"; fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Datenbank-Verbindung an die richtige Stelle kopieren
+        if: ${{ inputs.datenbank_reparieren }}
+        run: |
+          set -euo pipefail
+          NETLIFY="npx --yes netlify-cli@17"
+
+          if [ -n "${{ secrets.DATABASE_URL }}" ]; then
+            echo "Eigene DATABASE_URL aus den Secrets wird gesetzt."
+            $NETLIFY env:set DATABASE_URL "${{ secrets.DATABASE_URL }}" --force >/dev/null
+            $NETLIFY env:set DIRECT_URL "${{ secrets.DATABASE_URL }}" --force >/dev/null
+            echo "- Eigene \`DATABASE_URL\` gesetzt." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ "${{ steps.diagnose.outputs.hat_database_url }}" = "ja" ]; then
+            echo "DATABASE_URL ist bereits gesetzt, nichts zu tun."
+            echo "- \`DATABASE_URL\` war schon vorhanden." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ "${{ steps.diagnose.outputs.hat_netlify_db }}" != "ja" ]; then
+            {
+              echo
+              echo "> **Es gibt gar keine Datenbank-Variable.** Also ist die Netlify-Datenbank"
+              echo "> entweder noch nicht angelegt, oder sie hängt an einem anderen Projekt."
+              echo "> Anzulegen unter *Project configuration → Data & Storage → Database*."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Keine Datenbank-Variable gefunden"
+            exit 0
+          fi
+
+          # Wert holen und weiterreichen, ohne ihn je auszugeben.
+          echo "NETLIFY_DATABASE_URL gefunden – wird nach DATABASE_URL kopiert."
+          WERT=$($NETLIFY env:get NETLIFY_DATABASE_URL --plain 2>/dev/null | tr -d '\r\n')
+          echo "::add-mask::$WERT"
+          if [ -z "$WERT" ]; then
+            echo "::error::NETLIFY_DATABASE_URL ist zwar bekannt, aber leer."
+            exit 1
+          fi
+
+          UNPOOLED=$($NETLIFY env:get NETLIFY_DATABASE_URL_UNPOOLED --plain 2>/dev/null | tr -d '\r\n' || true)
+          [ -n "$UNPOOLED" ] && echo "::add-mask::$UNPOOLED"
+
+          $NETLIFY env:set DATABASE_URL "$WERT" --force >/dev/null
+          $NETLIFY env:set DIRECT_URL "${UNPOOLED:-$WERT}" --force >/dev/null
+          echo "- \`NETLIFY_DATABASE_URL\` nach \`DATABASE_URL\` kopiert (Wert nirgends ausgegeben)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bauen und veröffentlichen
+        id: deploy
+        if: ${{ inputs.neu_deployen }}
+        run: |
+          set -euo pipefail
+          NETLIFY="npx --yes netlify-cli@17"
+          $NETLIFY deploy --build --prod
+
+          URL=$($NETLIFY status --json | node -pe \
+            'const j=JSON.parse(require("fs").readFileSync(0,"utf8"));j.siteData?.ssl_url||j.siteData?.url||""')
+          [ -z "$URL" ] && URL="https://${SITE_NAME}.netlify.app"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Funktioniert die Seite wirklich?
+        if: ${{ inputs.neu_deployen }}
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+
+          echo "→ Startseite abrufen"
+          SEITE=$(curl -sS --retry 5 --retry-delay 5 --retry-all-errors "$URL/")
+
+          if echo "$SEITE" | grep -q "Fast fertig"; then
+            {
+              echo "## Noch ohne Datenbank"
+              echo
+              echo "Die Seite ist online ($URL), findet aber keine Datenbank."
+              echo "Im Netlify-Dashboard unter *Data & Storage → Database* eine anlegen,"
+              echo "dann diesen Workflow erneut starten."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Seite läuft, Datenbank fehlt noch"
+            exit 0
+          fi
+
+          echo "→ Testereignis anlegen und Kochzeiten nachrechnen"
+          NEU=$(curl -sS -X POST "$URL/api/events" -H 'Content-Type: application/json' \
+            -d '{"name":"Selbsttest","datum":"2026-12-24T09:00:00.000Z"}')
+          CODE=$(echo "$NEU" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).eventCode ?? ""')
+          KEY=$(echo "$NEU" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).hostKey ?? ""')
+
+          if [ -z "$CODE" ]; then
+            echo "Antwort des Servers: $NEU"
+            {
+              echo "## Die Datenbank antwortet nicht"
+              echo
+              echo "Die Seite lädt, aber ein Ereignis lässt sich nicht anlegen."
+              echo '```'; echo "$NEU" | head -c 600; echo; echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Event konnte nicht angelegt werden"
+            exit 1
+          fi
+          echo "::add-mask::$KEY"
+
+          # Anna: 1x weich, M, Kühlschrank  -> 4:30 + 1:00 = 05:30
+          # Jörg: 2x hart, XL, Zimmertemp.  -> 9:30 + 1:00 = 10:30, plus 1 Rührei (Pfanne)
+          G1=$(curl -sS -X POST "$URL/api/e/$CODE/gaeste" -H 'Content-Type: application/json' \
+            -d '{"name":"Anna"}' | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).gast.id')
+          G2=$(curl -sS -X POST "$URL/api/e/$CODE/gaeste" -H 'Content-Type: application/json' \
+            -d '{"name":"Jörg"}' | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).gast.id')
+
+          curl -sS -X PATCH "$URL/api/e/$CODE/gaeste/$G1" -H 'Content-Type: application/json' \
+            -d '{"bestellungen":[{"art":"WEICH","anzahl":1,"groesse":"M","temperatur":"KUEHLSCHRANK"}],"wunsch":"Nussallergie"}' -o /dev/null
+          curl -sS -X PATCH "$URL/api/e/$CODE/gaeste/$G2" -H 'Content-Type: application/json' \
+            -d '{"bestellungen":[{"art":"HART","anzahl":2,"groesse":"XL","temperatur":"ZIMMER"},{"art":"RUEHREI","anzahl":1,"groesse":"M","temperatur":"ZIMMER"}]}' -o /dev/null
+
+          PLAN=$(curl -sS "$URL/e/$CODE/host/kochplan?key=$KEY")
+
+          fehler=0
+          pruefe() {
+            if echo "$PLAN" | grep -qF "$1"; then
+              echo "  ok    $2"
+              echo "| $2 | gefunden |" >> /tmp/tabelle
+            else
+              echo "  FEHLT $2"
+              echo "| $2 | **FEHLT** |" >> /tmp/tabelle
+              fehler=1
+            fi
+          }
+          : > /tmp/tabelle
+          pruefe "05:30" "Anna, weich M aus dem Kühlschrank → 05:30"
+          pruefe "10:30" "Jörg, 2× hart XL → 10:30"
+          pruefe "Ei 2, Ei 3" "Jörgs beide Eier zusammengefasst"
+          pruefe "Rührei" "Rührei im Pfannen-Abschnitt"
+          pruefe "Nussallergie" "Sonderwunsch übernommen"
+          pruefe "Bleistift" "Hinweis zum Beschriften der Schalen"
+
+          {
+            echo "## Selbsttest auf der Live-Seite"
+            echo
+            echo "| Geprüft | Ergebnis |"
+            echo "|---|---|"
+            cat /tmp/tabelle
+            echo
+            if [ "$fehler" = "0" ]; then
+              echo "**Alles korrekt.** Die App rechnet richtig und speichert."
+              echo
+              echo "Live-URL: $URL"
+              echo
+              echo "Auf der Startseite \"Neues Frühstück anlegen\" – dort bekommst du"
+              echo "Gast- und Gastgeber-Link, die nur in deinem Browser auftauchen."
+            else
+              echo "**Es stimmt etwas nicht.** Siehe die Zeilen mit FEHLT."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          [ "$fehler" = "0" ] || exit 1
